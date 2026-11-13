@@ -608,7 +608,7 @@ def multimem_all_gather_v(
     SYMM_MEM_KERNEL_CONFIG.check_num_blocks(num_blocks)
 
     _multimem_all_gather_v_kernel[(num_blocks, 1, 1)](
-        input_tensor.data_ptr(),
+        input_tensor,  # a tensor, not data_ptr(): an empty one has address 0, which Triton types as i32
         symm_mem_hdl.multicast_ptr,
         symm_mem_hdl.signal_pad_ptrs_dev,
         local_tokens=local_tokens,
@@ -934,10 +934,10 @@ def multimem_all_gatherv_2tensor(
     SYMM_MEM_KERNEL_CONFIG.check_num_blocks(num_blocks)
 
     _multimem_all_gatherv_2tensor_kernel[(num_blocks, 1, 1)](
-        input_tensor_0.data_ptr(),
+        input_tensor_0,
         symm_mem_hdl_0.multicast_ptr,
         output_byte_offset_0,
-        input_tensor_1.data_ptr(),
+        input_tensor_1,
         symm_mem_hdl_1.multicast_ptr,
         output_byte_offset_1,
         symm_mem_hdl_0.signal_pad_ptrs_dev,
