@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-"""Multi-GPU correctness test of the minf_nvls dispatch / combine (no vLLM engine).
+"""Multi-GPU correctness test of the nvlink_allgather_reducescatter dispatch / combine (no vLLM engine).
 
-    torchrun --nproc-per-node 4 tools/minf_nvls_plugin/test_minf_nvls_dispatch.py
+    torchrun --nproc-per-node 4 tools/nvlink_agrs_plugin/test_nvlink_agrs_dispatch.py
 
-Loads the minf_nvls package through the plugin loader (so it also works against
-an installed vLLM that lacks it) and drives MinfNvlsAll2AllManager with a stub
+Loads the nvlink_allgather_reducescatter package through the plugin loader (so it also works against
+an installed vLLM that lacks it) and drives NvlinkAgRsAll2AllManager with a stub
 communication group. For random, unequal per-rank token counts (zero included)
 it checks:
 
@@ -32,28 +32,28 @@ import torch.distributed as dist
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 os.environ.setdefault(
-    "VLLM_MINF_NVLS_SRC",
+    "VLLM_NVLINK_AGRS_SRC",
     os.path.join(os.path.dirname(os.path.dirname(HERE)), "vllm", "distributed",
                  "device_communicators"),
 )
-from vllm_minf_nvls_plugin import _load_minf_nvls  # noqa: E402
+from vllm_nvlink_agrs_plugin import _load_nvlink_allgather_reducescatter  # noqa: E402
 
-minf = _load_minf_nvls()
+minf = _load_nvlink_allgather_reducescatter()
 from vllm.forward_context import override_forward_context  # noqa: E402
 
 PER_RANK_MAX = 512
 NUM_EXPERTS = 64
 
 
-class StubManager(minf.MinfNvlsAll2AllManager):
-    """MinfNvlsAll2AllManager without vLLM's parallel state / config."""
+class StubManager(minf.NvlinkAgRsAll2AllManager):
+    """NvlinkAgRsAll2AllManager without vLLM's parallel state / config."""
 
     def __init__(self, group, combine_dtype="auto"):
         # Skip All2AllManagerBase.__init__ (needs vLLM's parallel groups).
         self.per_rank_max = PER_RANK_MAX
         self.combine_dtype_mode = combine_dtype
         self.metadata_every_layer = False
-        self._max_blocks_env = os.environ.get("VLLM_MINF_NVLS_MAX_BLOCKS")
+        self._max_blocks_env = os.environ.get("VLLM_NVLINK_AGRS_MAX_BLOCKS")
         self._states = {}
         self.dp_world_size = dist.get_world_size(group)
         self.comm = SimpleNamespace(

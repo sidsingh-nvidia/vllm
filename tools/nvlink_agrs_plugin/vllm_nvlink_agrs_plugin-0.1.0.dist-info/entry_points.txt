@@ -1,0 +1,2 @@
+[vllm.general_plugins]
+nvlink_allgather_reducescatter = vllm_nvlink_agrs_plugin:register

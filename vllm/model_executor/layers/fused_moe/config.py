@@ -1065,7 +1065,7 @@ class FusedMoEParallelConfig:
     def use_ag_rs_all2all_kernels(self):
         return (
             self.use_all2all_kernels
-            and self.all2all_backend in ("allgather_reducescatter", "minf_nvls")
+            and self.all2all_backend in ("allgather_reducescatter", "nvlink_allgather_reducescatter")
         )
 
     @property

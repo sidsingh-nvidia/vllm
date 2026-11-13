@@ -6,6 +6,6 @@ See manager.py. The Triton kernels in this package are vendored from
 NVIDIA Megatron-LM (megatron/core/inference); see each file's header.
 """
 
-from .manager import MinfNvlsAll2AllManager
+from .manager import NvlinkAgRsAll2AllManager
 
-__all__ = ["MinfNvlsAll2AllManager"]
+__all__ = ["NvlinkAgRsAll2AllManager"]

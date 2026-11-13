@@ -1,4 +1,4 @@
 Metadata-Version: 2.1
-Name: vllm-minf-nvls-plugin
+Name: vllm-nvlink-agrs-plugin
 Version: 0.1.0
 Summary: Runs vLLM's allgather_reducescatter MoE all2all backend on Megatron-Core inference's NVLS all-gather-v / reduce-scatter-v kernels.

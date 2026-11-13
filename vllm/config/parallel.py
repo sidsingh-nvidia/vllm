@@ -52,7 +52,7 @@ All2AllBackend = Literal[
     "moonep",
     "nixl_ep",
     "allgather_reducescatter",
-    "minf_nvls",
+    "nvlink_allgather_reducescatter",
     "flashinfer_all2allv",  # temporary alias for flashinfer_nvlink_two_sided
     "flashinfer_nvlink_two_sided",
     "flashinfer_nvlink_one_sided",
@@ -221,7 +221,7 @@ class ParallelConfig:
     """All2All backend for MoE expert parallel communication. Available options:
 
     - "allgather_reducescatter": All2all based on allgather and reducescatter
-    - "minf_nvls": Megatron-Core inference's variable-count NVLS all-gather-v
+    - "nvlink_allgather_reducescatter": Megatron-Core inference's variable-count NVLS all-gather-v
       (dispatch) and reduce-scatter-v (combine) over symmetric-memory multicast;
       Hopper+ GPUs in one NVLink domain
     - "deepep_high_throughput": Use deepep high-throughput kernels
@@ -770,7 +770,7 @@ class ParallelConfig:
             self.all2all_backend
             in (
                 "allgather_reducescatter",
-                "minf_nvls",
+                "nvlink_allgather_reducescatter",
                 "deepep_high_throughput",
                 "deepep_low_latency",
                 "deepep_v2",

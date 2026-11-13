@@ -206,10 +206,10 @@ class CudaCommunicator(DeviceCommunicatorBase):
                 self.all2all_manager = AgRsAll2AllManager(
                     self.cpu_group, tcp_store_group
                 )
-            elif self.all2all_backend == "minf_nvls":
-                from .minf_nvls import MinfNvlsAll2AllManager
+            elif self.all2all_backend == "nvlink_allgather_reducescatter":
+                from .nvlink_agrs import NvlinkAgRsAll2AllManager
 
-                self.all2all_manager = MinfNvlsAll2AllManager(
+                self.all2all_manager = NvlinkAgRsAll2AllManager(
                     self.cpu_group, tcp_store_group
                 )
             elif self.all2all_backend == "deepep_high_throughput":

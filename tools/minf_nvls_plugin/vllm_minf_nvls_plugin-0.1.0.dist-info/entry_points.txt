@@ -1,2 +1,0 @@
-[vllm.general_plugins]
-minf_nvls = vllm_minf_nvls_plugin:register

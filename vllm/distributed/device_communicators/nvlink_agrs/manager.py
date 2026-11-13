@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """MoE EP dispatch / combine with Megatron-Core inference's NVLS collectives.
 
-``all2all_backend="minf_nvls"`` is the allgather_reducescatter backend with its
+``all2all_backend="nvlink_allgather_reducescatter"`` is the allgather_reducescatter backend with its
 NCCL all-gather-v / reduce-scatter-v swapped for the multimem (NVLink SHARP)
 kernels of Megatron-Core inference's ``NVLSAllGatherVDispatcher``:
 
@@ -32,15 +32,15 @@ domain, torch symmetric memory with multicast support, triton.
 
 Environment knobs (all optional):
 
-* ``VLLM_MINF_NVLS_MAX_TOKENS_PER_RANK``: rows each rank may contribute per
+* ``VLLM_NVLINK_AGRS_MAX_TOKENS_PER_RANK``: rows each rank may contribute per
   dispatch; sizes the buffers. Default: ``max_num_batched_tokens``.
-* ``VLLM_MINF_NVLS_COMBINE_DTYPE``: ``bf16`` | ``fp32`` | ``auto`` (default).
+* ``VLLM_NVLINK_AGRS_COMBINE_DTYPE``: ``bf16`` | ``fp32`` | ``auto`` (default).
   ``auto`` reduces in the experts' output dtype and lets them write straight
   into the symmetric buffer; ``fp32`` copies the partials to an fp32 buffer and
   reduces in fp32 (Megatron's ``inference_moe_combine_precision='fp32'``).
-* ``VLLM_MINF_NVLS_MAX_BLOCKS``: grid cap of the collectives. Default: as
+* ``VLLM_NVLINK_AGRS_MAX_BLOCKS``: grid cap of the collectives. Default: as
   Megatron (``ep_collectives_max_num_blocks``: 4 blocks/SM up to EP 8, else 1).
-* ``VLLM_MINF_NVLS_METADATA_EVERY_LAYER=1``: refresh the token-count metadata
+* ``VLLM_NVLINK_AGRS_METADATA_EVERY_LAYER=1``: refresh the token-count metadata
   in every MoE layer instead of once per forward pass.
 """
 
@@ -98,7 +98,7 @@ def _symm_alloc(nbytes: int, group: dist.ProcessGroup) -> tuple[torch.Tensor, An
 
     if torch.cuda.is_current_stream_capturing():
         raise RuntimeError(
-            "minf_nvls: a symmetric buffer would be allocated during CUDA graph "
+            "nvlink_allgather_reducescatter: a symmetric buffer would be allocated during CUDA graph "
             "capture. Buffers are created on first use, which must happen in an "
             "eager forward (e.g. the profile run); this dispatch has a tensor "
             "shape the eager runs never produced."
@@ -114,7 +114,7 @@ def _symm_alloc(nbytes: int, group: dist.ProcessGroup) -> tuple[torch.Tensor, An
     hdl = symm_mem.rendezvous(buf, group)
     if hdl is None or not getattr(hdl, "multicast_ptr", 0):
         raise RuntimeError(
-            "minf_nvls: symmetric memory has no multicast support on this group; "
+            "nvlink_allgather_reducescatter: symmetric memory has no multicast support on this group; "
             "the NVLS dispatcher needs Hopper+ GPUs in one NVLink domain."
         )
     return buf, hdl
@@ -152,20 +152,20 @@ class _GroupState:
         if key not in self.buffers:
             self.buffers[key] = _symm_alloc(row_bytes * self.global_max, self.device_group)
             logger.info(
-                "minf_nvls: allocated symmetric buffer %s: %d rows x %d B = %.1f MiB",
+                "nvlink_allgather_reducescatter: allocated symmetric buffer %s: %d rows x %d B = %.1f MiB",
                 key, self.global_max, row_bytes,
                 row_bytes * self.global_max / 2**20,
             )
         return self.buffers[key]
 
 
-class MinfNvlsAll2AllManager(AgRsAll2AllManager):
+class NvlinkAgRsAll2AllManager(AgRsAll2AllManager):
     """allgather_reducescatter with Megatron-Core inference's NVLS AG-v / RS-v."""
 
     def __init__(self, cpu_group, tcp_store_group=None):
         super().__init__(cpu_group, tcp_store_group)
         vllm_config = get_current_vllm_config()
-        env_max = os.environ.get("VLLM_MINF_NVLS_MAX_TOKENS_PER_RANK")
+        env_max = os.environ.get("VLLM_NVLINK_AGRS_MAX_TOKENS_PER_RANK")
         if env_max:
             self.per_rank_max = int(env_max)
         else:
@@ -177,17 +177,17 @@ class MinfNvlsAll2AllManager(AgRsAll2AllManager):
                 max_tokens = (max_tokens + tp - 1) // tp
             self.per_rank_max = max_tokens
         self.combine_dtype_mode = os.environ.get(
-            "VLLM_MINF_NVLS_COMBINE_DTYPE", "auto").lower()
+            "VLLM_NVLINK_AGRS_COMBINE_DTYPE", "auto").lower()
         assert self.combine_dtype_mode in ("auto", "bf16", "fp32"), (
-            f"VLLM_MINF_NVLS_COMBINE_DTYPE={self.combine_dtype_mode!r}; "
+            f"VLLM_NVLINK_AGRS_COMBINE_DTYPE={self.combine_dtype_mode!r}; "
             "expected auto, bf16 or fp32"
         )
         self.metadata_every_layer = (
-            os.environ.get("VLLM_MINF_NVLS_METADATA_EVERY_LAYER", "0") == "1")
-        self._max_blocks_env = os.environ.get("VLLM_MINF_NVLS_MAX_BLOCKS")
+            os.environ.get("VLLM_NVLINK_AGRS_METADATA_EVERY_LAYER", "0") == "1")
+        self._max_blocks_env = os.environ.get("VLLM_NVLINK_AGRS_MAX_BLOCKS")
         self._states: dict[str, _GroupState] = {}
         logger.info(
-            "Using minf_nvls all2all manager (Megatron-Core inference NVLS "
+            "Using nvlink_allgather_reducescatter all2all manager (Megatron-Core inference NVLS "
             "AllGather-V / ReduceScatter-V), max %d tokens per rank, combine "
             "dtype %s.", self.per_rank_max, self.combine_dtype_mode,
         )
@@ -229,9 +229,9 @@ class MinfNvlsAll2AllManager(AgRsAll2AllManager):
         """Exchange token counts once per forward pass (every call with no context)."""
         if local_tokens > st.per_rank_max:
             raise RuntimeError(
-                f"minf_nvls: {local_tokens} local tokens exceed the buffer capacity "
+                f"nvlink_allgather_reducescatter: {local_tokens} local tokens exceed the buffer capacity "
                 f"of {st.per_rank_max} per rank; raise "
-                "VLLM_MINF_NVLS_MAX_TOKENS_PER_RANK."
+                "VLLM_NVLINK_AGRS_MAX_TOKENS_PER_RANK."
             )
         ctx = get_forward_context() if is_forward_context_available() else None
         if (ctx is not None and ctx is st.last_ctx and not self.metadata_every_layer):
@@ -239,9 +239,9 @@ class MinfNvlsAll2AllManager(AgRsAll2AllManager):
             # cannot be fixed locally (the update is collective), so fail loudly.
             if local_tokens != st.last_local_tokens:
                 raise RuntimeError(
-                    f"minf_nvls: token count changed within a forward pass "
+                    f"nvlink_allgather_reducescatter: token count changed within a forward pass "
                     f"({st.last_local_tokens} -> {local_tokens}); set "
-                    "VLLM_MINF_NVLS_METADATA_EVERY_LAYER=1."
+                    "VLLM_NVLINK_AGRS_METADATA_EVERY_LAYER=1."
                 )
             return
         fused_metadata_update(
@@ -371,7 +371,7 @@ class MinfNvlsAll2AllManager(AgRsAll2AllManager):
         esize = torch.empty((), dtype=dtype).element_size()
         row_bytes = hidden * esize
         assert row_bytes % 16 == 0, (
-            f"minf_nvls combine needs 16-byte rows; hidden={hidden} {dtype}")
+            f"nvlink_allgather_reducescatter combine needs 16-byte rows; hidden={hidden} {dtype}")
         buf, hdl = st.buffer("rsv", row_bytes)
         return buf[: row_bytes * st.global_max].view(dtype).view(st.global_max, hidden), hdl
 
@@ -408,7 +408,7 @@ class MinfNvlsAll2AllManager(AgRsAll2AllManager):
         total, hidden = hidden_states.shape
         local = output.shape[0]
         assert local == st.last_local_tokens or not self._dispatched(st), (
-            f"minf_nvls combine: output has {local} rows, dispatch had "
+            f"nvlink_allgather_reducescatter combine: output has {local} rows, dispatch had "
             f"{st.last_local_tokens}")
         rdtype = self._combine_dtype(hidden_states.dtype)
         rsv, hdl = self._rsv(st, hidden, rdtype)
@@ -443,7 +443,7 @@ class MinfNvlsAll2AllManager(AgRsAll2AllManager):
         if comm_group.world_size == 1:
             return super().combine(hidden_states, is_sequence_parallel)
         st = self._state(comm_group)
-        assert self._dispatched(st), "minf_nvls combine before any dispatch"
+        assert self._dispatched(st), "nvlink_allgather_reducescatter combine before any dispatch"
         output = torch.empty(
             (st.last_local_tokens, hidden_states.shape[1]),
             dtype=hidden_states.dtype, device=hidden_states.device)
